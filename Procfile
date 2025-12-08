@@ -1,2 +1,1 @@
-worker: python Zapis2.py
-
+web: gunicorn HookZapis:app
