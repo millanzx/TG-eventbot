@@ -58,7 +58,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
-GOOGLE_CREDENTIALS_PATH = "credentials.json"  # ← Путь к файлу с учетными данными
+GOOGLE_CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json")
 
 # Константы для управления
 MAX_RETRY_ATTEMPTS = 3  # Максимальное количество попыток для Google Sheets
