@@ -6998,15 +6998,18 @@ async def admin_reminder_confirm_create(update: Update, context: ContextTypes.DE
 
     return ADMIN_MENU
 
-# === ОСНОВНАЯ ФУНКЦИЯ ЗАПУСКА ===
-def main():
+# === НАСТРОЙКА И ЗАПУСК БОТА ===
+def setup_bot():
+    """Инициализирует и настраивает бота, но не запускает polling"""
     global google_sheets_enabled
+    
     # Инициализация базы данных
     init_db()
     # Восстановление состояния очередей после перезапуска
     restore_queue_state()
     # Инициализация Google Sheets
     google_sheets_enabled = init_google_sheets()
+    
     # Запускаем фоновый поток для работы с Google Sheets
     sheets_thread_container = [threading.Thread(target=sheets_worker, daemon=True, name="GoogleSheetsWorker")]
     sheets_thread_container[0].start()
@@ -7029,6 +7032,7 @@ def main():
     # Запускаем поток мониторинга
     monitor_thread = threading.Thread(target=monitor_sheets_thread, daemon=True, name="SheetsMonitor")
     monitor_thread.start()
+    
     # 🔑 Получаем токен
     TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     if not TOKEN:
@@ -7037,17 +7041,14 @@ def main():
         TOKEN = "YOUR_TOKEN_HERE"
     # Очищаем токен от пробелов
     TOKEN = clean_token(TOKEN)
+    
     # Создаем приложение
     try:
         application = Application.builder().token(TOKEN).build()
     except Exception as e:
         logger.error(f"❌ Ошибка при создании приложения: {e}")
         print("❌ КРИТИЧЕСКАЯ ОШИБКА: Неверный формат токена!")
-        print("Проверьте, что в токене нет пробелов и он имеет формат: 123456789:AAHjklasdfghjklzxcvbnm1234567890")
-        print("\nКак исправить:")
-        print("1. Установите переменную окружения TELEGRAM_BOT_TOKEN без пробелов")
-        print("2. Или замените строку с токеном в коде")
-        return
+        return None
 
     # Создаем ConversationHandler для обычных пользователей
     user_conversation_handler = ConversationHandler(
@@ -7183,8 +7184,8 @@ def main():
     check_missed_reminders(application)
 
     # Запускаем бота
-    logger.info("✅ Бот запущен! Нажмите Ctrl+C для остановки")
-    print("✅ Бот запущен! Нажмите Ctrl+C для остановки")
+    logger.info("✅ Бот инициализирован!")
+    print("✅ Бот инициализирован!")
 
     # Запускаем фоновый поток для напоминаний ПОСЛЕ запуска приложения
     reminder_thread = threading.Thread(target=reminder_worker, args=(application,), daemon=True, name="ReminderWorker")
@@ -7202,7 +7203,13 @@ def main():
     print("ℹ️  Для доступа к админ-панели нажмите кнопку 'Админ-панель' в главном меню (только для администраторов)")
     print("⏰ Напоминания о мастер-классах будут отправляться за 24 часа и за 1 час до начала")
     print("🔄 При запуске бота проверяются и отправляются пропущенные напоминания")
+    
+    return application
 
+def main():
+    application = setup_bot()
+    if not application:
+        return
 
     try:
         application.run_polling()

@@ -3,6 +3,11 @@
 ## Overview
 This Telegram bot provides a comprehensive system for managing master-class registrations, including user registration, admin management, automated reminders, and Google Sheets integration.
 
+**Recent Updates:**
+- Added **Webhook Support**: Run the bot via Flask webhook (`HookZapis.py`) or traditional polling (`Zapis2.py`).
+- Refactored `Zapis2.py` to expose a `setup_bot()` function for external initialization.
+- Improved start button logic and suppressed duplicate UI hints.
+
 ## Key Features
 
 ### 👤 User Features
@@ -49,70 +54,35 @@ This Telegram bot provides a comprehensive system for managing master-class regi
 - **Capacity Management**: Set total spots and track registrations
 
 #### User Management
-- **View Participants**: List all registered users for specific master-classes
-- **Remove Users**: Cancel user registrations with notifications
-- **Family Management**: Handle family registrations and dependencies
-- **Bulk Operations**: Manage multiple registrations efficiently
-
-#### Advanced Features
-- **Specific Time Slots**: Create custom time slots for special dates
-- **Real-time Updates**: Automatic capacity updates and notifications
-- **Audit Logging**: Complete admin action tracking
-- **Data Export**: Integration with Google Sheets for reporting
+- **View Participants**: See all registered users for each master-class
+- **Remove Users**: Manually cancel user registrations
+- **Filter Users**: Filter by master-class or view all
 
 ### 📊 Google Sheets Integration
+- **Syncing**: Automatic syncing of registrations to Google Sheets
+- **Masking**: Personal data (Surname, Second name) masked for privacy in sheets, First Name remains visible.
+- **Admin Reload**: Force reload data from sheets via admin panel
 
-#### Automatic Synchronization
-- **Registration Logs**: All user actions logged to Google Sheets
-- **Master-Class Data**: Master-class information stored and updated
-- **Real-time Updates**: Changes reflected immediately in spreadsheets
-- **Backup System**: Automatic data backup and recovery
+## Deployment Options
 
-#### Data Structure
-- **Visitors Sheet**: Registration history with user details
-- **Master-Classes Sheet**: Master-class configuration and statistics
-- **Protected Data**: Sensitive information masked for privacy
+### 1. Long Polling (Default)
+Run the bot directly using standard long polling:
+```bash
+python Zapis2.py
+```
 
-### 🕐 Time Zone & Scheduling
+### 2. Webhook (New)
+Run the bot as a Flask application to receive updates via webhook:
+```bash
+python HookZapis.py
+```
+*Requires setting up a webhook URL with Telegram API pointing to your server's address.*
 
-#### Moscow Time Zone
-- **Consistent Timing**: All operations use Moscow time (UTC+3)
-- **Accurate Reminders**: Timezone-aware reminder scheduling
-- **Calendar Accuracy**: Date/time calculations in local timezone
-
-#### Background Processing
-- **Reminder Threads**: Dedicated threads for reminder processing
-- **Queue System**: Prioritized background tasks for Google Sheets
-- **Error Recovery**: Automatic retry mechanisms for failed operations
-
-## Technical Architecture
-
-### Database
-- **SQLite3**: Local database for registrations and reminders
-- **Thread-Safe Operations**: Concurrent access protection
-- **Data Integrity**: Foreign key constraints and validation
-
-### External Services
-- **Telegram Bot API**: Message handling and user interactions
-- **Google Sheets API**: Data storage and reporting
-- **Google Service Account**: Secure API authentication
-
-### Security Features
-- **Admin Authentication**: Password-protected admin access
-- **User Verification**: Telegram verification requirements
-- **Data Masking**: Privacy protection in logs and exports
-- **Error Handling**: Comprehensive exception management
-
-### Performance Optimizations
-- **Asynchronous Operations**: Non-blocking message sending
-- **Background Threads**: Separate threads for reminders and Google Sheets
-- **Caching System**: Master-class data caching for performance
-- **Queue Management**: Prioritized task processing
-
-## Supported Languages
-- **Russian**: Full Russian language interface
-- **Emoji Integration**: Visual indicators throughout the interface
-
-## Deployment Ready
-This bot is designed for cloud deployment on platforms like Render, with proper configuration files for production hosting.
-
+## Setup
+1. Install requirements: `pip install -r requirements.txt`
+2. Set environment variables:
+   - `TELEGRAM_BOT_TOKEN`: Your bot token
+   - `TELEGRAM_ADMIN_IDS`: Comma-separated admin IDs
+   - `ADMIN_PASSWORD`: Password for admin panel
+   - `PORT`: (Optional) Port for webhook server (default 5000)
+3. Ensure `credentials.json` is present for Google Sheets integration.
