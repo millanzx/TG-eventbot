@@ -58,7 +58,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
-CREDENTIALS_PATH = "credentials.json"  # ← Путь к файлу с учетными данными
+GOOGLE_CREDENTIALS_PATH = "credentials.json"  # ← Путь к файлу с учетными данными
 
 # Константы для управления
 MAX_RETRY_ATTEMPTS = 3  # Максимальное количество попыток для Google Sheets
@@ -611,15 +611,15 @@ def init_google_sheets():
     if google_sheets_initialized:
         return google_sheets_enabled
     try:
-        if not os.path.exists(CREDENTIALS_PATH):
-            logger.warning(f"❌ Файл учетных данных не найден: {CREDENTIALS_PATH}")
+        if not os.path.exists(GOOGLE_CREDENTIALS_PATH):
+            logger.warning(f"❌ Файл учетных данных не найден: {GOOGLE_CREDENTIALS_PATH}")
             logger.warning("📊 Функция интеграции с Google Sheets будет отключена.")
             google_sheets_enabled = False
             google_sheets_initialized = True
             return False
         logger.info("🔄 Подключение к Google Sheets...")
         try:
-            creds = Credentials.from_service_account_file(CREDENTIALS_PATH, scopes=SCOPES)
+            creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS_PATH, scopes=SCOPES)
         except Exception as auth_error:
             logger.error(f"❌ Ошибка аутентификации Google API: {auth_error}")
             logger.error("Проверьте корректность файла учетных данных и его формат.")
