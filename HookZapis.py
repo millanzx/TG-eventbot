@@ -39,10 +39,10 @@ async def webhook():
 
             data = request.json
             # logger.info(f"Received webhook data: {data}")
-            
+
             # Create Update object from JSON
             update = Update.de_json(data, bot_app.bot)
-            
+
             # Process the update
             await bot_app.process_update(update)
 

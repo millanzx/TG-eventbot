@@ -42,6 +42,7 @@ warnings.filterwarnings("ignore", message="If 'per_message=True', 'all entry poi
 from requests.exceptions import ConnectionError, Timeout, RequestException
 import schedule
 import re
+import json
 
 # === НАСТРОЙКИ И КОНСТАНТЫ ===
 # ID администраторов (через переменную окружения или жестко заданный список)
@@ -58,7 +59,8 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
-GOOGLE_CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json")
+# Modified for Render deployment - using environment variable instead of local file
+GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
 
 # Константы для управления
 MAX_RETRY_ATTEMPTS = 3  # Максимальное количество попыток для Google Sheets
@@ -611,18 +613,21 @@ def init_google_sheets():
     if google_sheets_initialized:
         return google_sheets_enabled
     try:
-        if not os.path.exists(GOOGLE_CREDENTIALS_PATH):
-            logger.warning(f"❌ Файл учетных данных не найден: {GOOGLE_CREDENTIALS_PATH}")
+        # Modified: Check for environment variable instead of file
+        if not GOOGLE_CREDENTIALS_JSON:
+            logger.warning("❌ Переменная окружения GOOGLE_CREDENTIALS_JSON не установлена")
             logger.warning("📊 Функция интеграции с Google Sheets будет отключена.")
             google_sheets_enabled = False
             google_sheets_initialized = True
             return False
         logger.info("🔄 Подключение к Google Sheets...")
         try:
-            creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS_PATH, scopes=SCOPES)
+            # Modified: Parse JSON from environment variable instead of reading file
+            creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
+            creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
         except Exception as auth_error:
             logger.error(f"❌ Ошибка аутентификации Google API: {auth_error}")
-            logger.error("Проверьте корректность файла учетных данных и его формат.")
+            logger.error("Проверьте корректность JSON в переменной окружения GOOGLE_CREDENTIALS_JSON.")
             google_sheets_enabled = False
             google_sheets_initialized = True
             return False
@@ -6998,18 +7003,15 @@ async def admin_reminder_confirm_create(update: Update, context: ContextTypes.DE
 
     return ADMIN_MENU
 
-# === НАСТРОЙКА И ЗАПУСК БОТА ===
-def setup_bot():
-    """Инициализирует и настраивает бота, но не запускает polling"""
+# === ОСНОВНАЯ ФУНКЦИЯ ЗАПУСКА ===
+def main():
     global google_sheets_enabled
-    
     # Инициализация базы данных
     init_db()
     # Восстановление состояния очередей после перезапуска
     restore_queue_state()
     # Инициализация Google Sheets
     google_sheets_enabled = init_google_sheets()
-    
     # Запускаем фоновый поток для работы с Google Sheets
     sheets_thread_container = [threading.Thread(target=sheets_worker, daemon=True, name="GoogleSheetsWorker")]
     sheets_thread_container[0].start()
@@ -7032,7 +7034,6 @@ def setup_bot():
     # Запускаем поток мониторинга
     monitor_thread = threading.Thread(target=monitor_sheets_thread, daemon=True, name="SheetsMonitor")
     monitor_thread.start()
-    
     # 🔑 Получаем токен
     TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     if not TOKEN:
@@ -7041,14 +7042,17 @@ def setup_bot():
         TOKEN = "YOUR_TOKEN_HERE"
     # Очищаем токен от пробелов
     TOKEN = clean_token(TOKEN)
-    
     # Создаем приложение
     try:
         application = Application.builder().token(TOKEN).build()
     except Exception as e:
         logger.error(f"❌ Ошибка при создании приложения: {e}")
         print("❌ КРИТИЧЕСКАЯ ОШИБКА: Неверный формат токена!")
-        return None
+        print("Проверьте, что в токене нет пробелов и он имеет формат: 123456789:AAHjklasdfghjklzxcvbnm1234567890")
+        print("\nКак исправить:")
+        print("1. Установите переменную окружения TELEGRAM_BOT_TOKEN без пробелов")
+        print("2. Или замените строку с токеном в коде")
+        return
 
     # Создаем ConversationHandler для обычных пользователей
     user_conversation_handler = ConversationHandler(
@@ -7184,8 +7188,8 @@ def setup_bot():
     check_missed_reminders(application)
 
     # Запускаем бота
-    logger.info("✅ Бот инициализирован!")
-    print("✅ Бот инициализирован!")
+    logger.info("✅ Бот запущен! Нажмите Ctrl+C для остановки")
+    print("✅ Бот запущен! Нажмите Ctrl+C для остановки")
 
     # Запускаем фоновый поток для напоминаний ПОСЛЕ запуска приложения
     reminder_thread = threading.Thread(target=reminder_worker, args=(application,), daemon=True, name="ReminderWorker")
@@ -7203,13 +7207,7 @@ def setup_bot():
     print("ℹ️  Для доступа к админ-панели нажмите кнопку 'Админ-панель' в главном меню (только для администраторов)")
     print("⏰ Напоминания о мастер-классах будут отправляться за 24 часа и за 1 час до начала")
     print("🔄 При запуске бота проверяются и отправляются пропущенные напоминания")
-    
-    return application
 
-def main():
-    application = setup_bot()
-    if not application:
-        return
 
     try:
         application.run_polling()
