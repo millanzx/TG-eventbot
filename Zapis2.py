@@ -7208,6 +7208,219 @@ def main():
     print("⏰ Напоминания о мастер-классах будут отправляться за 24 часа и за 1 час до начала")
     print("🔄 При запуске бота проверяются и отправляются пропущенные напоминания")
 
+    return application
+
+def setup_bot():
+    """Инициализирует и настраивает бота, но не запускает polling"""
+    global google_sheets_enabled
+
+    # Инициализация базы данных
+    init_db()
+    # Восстановление состояния очередей после перезапуска
+    restore_queue_state()
+    # Инициализация Google Sheets
+    google_sheets_enabled = init_google_sheets()
+
+    # Запускаем фоновый поток для работы с Google Sheets
+    sheets_thread_container = [threading.Thread(target=sheets_worker, daemon=True, name="GoogleSheetsWorker")]
+    sheets_thread_container[0].start()
+
+    # Функция мониторинга фонового потока
+    def monitor_sheets_thread():
+        """Мониторит и перезапускает фоновый поток Google Sheets при необходимости"""
+        while True:
+            time.sleep(30)  # Проверяем каждые 30 секунд
+            if not sheets_thread_container[0].is_alive():
+                logger.warning("⚠️ Фоновый поток Google Sheets остановлен, перезапускаем...")
+                try:
+                    new_thread = threading.Thread(target=sheets_worker, daemon=True, name="GoogleSheetsWorker")
+                    new_thread.start()
+                    sheets_thread_container[0] = new_thread
+                    logger.info("✅ Фоновый поток Google Sheets успешно перезапущен")
+                except Exception as e:
+                    logger.error(f"❌ Ошибка при перезапуске фонового потока Google Sheets: {e}")
+
+    # Запускаем поток мониторинга
+    monitor_thread = threading.Thread(target=monitor_sheets_thread, daemon=True, name="SheetsMonitor")
+    monitor_thread.start()
+
+    # 🔑 Получаем токен
+    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not TOKEN:
+        logger.warning("⚠️ Токен не установлен в переменных окружения!")
+        print("⚠️  ВАЖНО: Установите реальный токен!")
+        TOKEN = "YOUR_TOKEN_HERE"
+    # Очищаем токен от пробелов
+    TOKEN = clean_token(TOKEN)
+
+    # Создаем приложение
+    try:
+        application = Application.builder().token(TOKEN).build()
+    except Exception as e:
+        logger.error(f"❌ Ошибка при создании приложения: {e}")
+        print("❌ КРИТИЧЕСКАЯ ОШИБКА: Неверный формат токена!")
+        return None
+
+    # Создаем ConversationHandler для обычных пользователей
+    user_conversation_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(register_start, pattern="^register$"),
+            CallbackQueryHandler(check_record_start, pattern="^check_record$")
+        ],
+        states={
+            FULL_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_full_name),
+                CallbackQueryHandler(back_to_main_menu, pattern="^back_to_menu$")
+            ],
+            POSITION_SELECTION: [
+                CallbackQueryHandler(handle_registration_type, pattern="^(register_self|register_family)$"),
+                CallbackQueryHandler(select_position, pattern="^(master\\|.*|back_to_masters\\|.*|no_masters_available|back_to_menu)$")
+            ],
+            DATE_SELECTION: [CallbackQueryHandler(select_date)],
+            TIME_SELECTION: [CallbackQueryHandler(select_time)],
+            CHECK_RECORD: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, find_record),
+                CallbackQueryHandler(back_to_main_menu, pattern="^back_to_menu$")
+            ],
+            MANAGE_RECORD: [
+                CallbackQueryHandler(manage_record),
+                CallbackQueryHandler(back_to_main_menu, pattern="^back_to_menu$")
+            ],
+            MANAGE_MULTIPLE_RECORDS: [
+                CallbackQueryHandler(manage_multiple_records, pattern="^(register_new|manage_existing|manage_specific:.*|back_to_menu)$")
+            ],
+        },
+        fallbacks=[
+            CommandHandler("start", start),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_random_text_fallback, block=False)
+        ],
+        allow_reentry=True
+    )
+
+    # Создаем ConversationHandler для администраторов
+    admin_conversation_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(admin_start, pattern="^admin_panel$")
+        ],
+        states={
+            ADMIN_PASSWORD: [MessageHandler(filters.TEXT, check_admin_password)],
+            ADMIN_MENU: [CallbackQueryHandler(admin_actions, pattern="^(back_to_menu|admin_reload_data|admin_manage_users|admin_edit_masters|admin_reminders|admin_view_reminders|admin_create_reminder|back_to_admin_menu|admin_edit_master\\|.*|admin_edit_field\\|.*|admin_set_available\\|.*|admin_set_exclude_weekends\\|.*|admin_delete_master\\|.*|confirm_delete_master\\|.*|admin_add_master|admin_manage_master_users\\|.*|admin_reminder_details\\|.*|admin_reminder_toggle\\|.*|admin_reminder_delete\\|.*|admin_reminder_confirm_delete\\|.*|admin_remove_user\\|.*|confirm_remove_user\\|.*|admin_manage_specific_slots\\|.*|admin_add_specific_slot\\|.*|admin_delete_specific_slot\\|.*)$")],
+            ADMIN_EDIT_MASTER_SELECT: [CallbackQueryHandler(admin_actions, pattern="^(back_to_admin_menu|admin_edit_master\\|.*)$")],
+            ADMIN_EDIT_MASTER_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_master_name),
+                CallbackQueryHandler(admin_actions, pattern="^(admin_edit_master\\|.*|back_to_admin_menu|admin_edit_masters)$")
+            ],
+            ADMIN_EDIT_MASTER_DESCRIPTION: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_master_description),
+                CallbackQueryHandler(admin_actions, pattern="^(admin_edit_master\\|.*|back_to_admin_menu|admin_edit_masters)$")
+            ],
+            ADMIN_EDIT_MASTER_DATE_START: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_master_date_start),
+                CallbackQueryHandler(admin_actions, pattern="^(admin_edit_master\\|.*|back_to_admin_menu|admin_edit_masters)$")
+            ],
+            ADMIN_EDIT_MASTER_DATE_END: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_master_date_end),
+                CallbackQueryHandler(admin_actions, pattern="^(admin_edit_master\\|.*|back_to_admin_menu|admin_edit_masters)$")
+            ],
+            ADMIN_EDIT_MASTER_TIME_START: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_master_time_start),
+                CallbackQueryHandler(admin_actions, pattern="^(admin_edit_master\\|.*|back_to_admin_menu|admin_edit_masters)$")
+            ],
+            ADMIN_EDIT_MASTER_TIME_END: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_master_time_end),
+                CallbackQueryHandler(admin_actions, pattern="^(admin_edit_master\\|.*|back_to_admin_menu|admin_edit_masters)$")
+            ],
+            ADMIN_EDIT_MASTER_SPOTS: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_master_spots),
+                CallbackQueryHandler(admin_actions, pattern="^(admin_edit_master\\|.*|back_to_admin_menu|admin_edit_masters)$")
+            ],
+            ADMIN_EDIT_MASTER_AVAILABLE: [CallbackQueryHandler(admin_actions, pattern="^(admin_set_available\\|.*|back_to_admin_menu)$")],
+            ADMIN_SPECIFIC_TIME_SLOTS: [
+                CallbackQueryHandler(admin_actions, pattern="^(admin_manage_specific_slots\\|.*|admin_add_specific_slot\\|.*|admin_delete_specific_slot\\|.*|admin_edit_master\\|.*|back_to_admin_menu)$")
+            ],
+            ADMIN_ADD_SPECIFIC_TIME_DATE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_specific_slot_start),
+                CallbackQueryHandler(admin_actions, pattern="^(admin_manage_specific_slots\\|.*|admin_edit_master\\|.*|back_to_admin_menu)$")
+            ],
+            ADMIN_ADD_SPECIFIC_TIME_START: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_specific_slot_time_start),
+                CallbackQueryHandler(admin_actions, pattern="^(admin_manage_specific_slots\\|.*|admin_edit_master\\|.*|back_to_admin_menu)$")
+            ],
+            ADMIN_ADD_SPECIFIC_TIME_END: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_specific_slot_time_end),
+                CallbackQueryHandler(admin_actions, pattern="^(admin_manage_specific_slots\\|.*|admin_edit_master\\|.*|back_to_admin_menu)$")
+            ],
+            ADMIN_REMINDER_SELECT: [CallbackQueryHandler(admin_reminder_details, pattern="^(admin_reminder_details\\|.*|admin_reminders)$")],
+            ADMIN_REMINDER_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_reminder_title_input), CallbackQueryHandler(admin_reminder_set_title)],
+            ADMIN_REMINDER_MESSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_reminder_message_input), CallbackQueryHandler(admin_reminder_set_message)],
+            ADMIN_REMINDER_TYPE: [CallbackQueryHandler(admin_reminder_set_type, pattern="^(admin_reminder_type_.*|admin_reminder_back_to_type)$")],
+            ADMIN_REMINDER_SCHEDULE: [CallbackQueryHandler(admin_reminder_set_schedule, pattern="^(admin_reminder_schedule_.*|admin_reminder_back_to_schedule)$")],
+            ADMIN_REMINDER_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_reminder_time_input), CallbackQueryHandler(admin_reminder_set_time)],
+            ADMIN_REMINDER_DAY: [CallbackQueryHandler(admin_reminder_set_day, pattern="^(admin_reminder_day_.*)$")],
+            ADMIN_REMINDER_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_reminder_date_input), CallbackQueryHandler(admin_reminder_set_date)],
+            ADMIN_REMINDER_MASTER_CLASS: [CallbackQueryHandler(admin_reminder_set_master_class, pattern="^(admin_reminder_master_.*|admin_reminder_back_to_time)$")],
+            ADMIN_REMINDER_CONFIRM: [CallbackQueryHandler(admin_reminder_confirm_create, pattern="^(admin_reminder_confirm_create|admin_reminders)$")],
+        },
+        fallbacks=[
+            CommandHandler("start", admin_start_from_session),
+            CallbackQueryHandler(admin_menu, pattern="^back_to_admin_menu$"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_random_text_fallback, block=False)
+        ],
+        allow_reentry=True
+    )
+
+    # Регистрируем обработчики
+    application.add_handler(CommandHandler("start", start))
+    # Обработчик для случайных текстовых сообщений - показываем кнопку "Start" (ставим раньше остальных; block=False, чтобы не мешать другим хендлерам)
+    # application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_random_text, block=False))
+    # Обработчик для кнопки "Главное меню" из постоянной клавиатуры
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex("^🏠 Главное меню$"), handle_main_menu_button, block=False))
+    # Обработчик для случайных текстовых сообщений - показываем кнопку "Start"
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex("^🏠 Главное меню$"), handle_random_text, block=False))
+
+    application.add_handler(user_conversation_handler)
+    application.add_handler(admin_conversation_handler)
+    application.add_handler(CallbackQueryHandler(about_event, pattern="^about$"))
+    application.add_handler(CallbackQueryHandler(refresh_data, pattern="^refresh_data$"))
+    application.add_handler(CallbackQueryHandler(start, pattern="^back_to_menu$"))
+    application.add_handler(CallbackQueryHandler(manage_record, pattern="^change_datetime:.*$"))
+    application.add_handler(CallbackQueryHandler(manage_record, pattern="^change_position:.*$"))
+    application.add_handler(CallbackQueryHandler(manage_record, pattern="^delete_record:.*$"))
+    application.add_handler(CallbackQueryHandler(manage_record, pattern="^keep_record$"))
+    application.add_handler(CallbackQueryHandler(manage_record, pattern="^register_again$"))
+    application.add_handler(CallbackQueryHandler(show_main_menu_callback, pattern="^show_main_menu$"))
+    application.add_error_handler(error_handler)
+
+    # Проверяем пропущенные напоминания при запуске бота
+    check_missed_reminders(application)
+
+    # Запускаем бота
+    logger.info("✅ Бот инициализирован!")
+    print("✅ Бот инициализирован!")
+
+    # Запускаем фоновый поток для напоминаний ПОСЛЕ запуска приложения
+    reminder_thread = threading.Thread(target=reminder_worker, args=(application,), daemon=True, name="ReminderWorker")
+    reminder_thread.start()
+    logger.info("✅ Поток напоминаний запущен")
+    print(f"ℹ️  Используется токен: {TOKEN[:5]}...{TOKEN[-5:]}")
+    if google_sheets_enabled:
+        print("✅ Интеграция с Google Sheets: Активна")
+        print("✅ Доступно мастер-классов: " + str(len(masters_data)))
+    else:
+        print("⚠️ Интеграция с Google Sheets: Отключена (проверьте настройки и файл credentials.json)")
+
+    print(f"🔐 Пароль для админ-панели: {'*' * len(ADMIN_PASSWORD_VALUE)}")
+    print(f"👥 Количество администраторов: {len(ADMIN_IDS)}")
+    print("ℹ️  Для доступа к админ-панели нажмите кнопку 'Админ-панель' в главном меню (only for administrators)")
+    print("⏰ Напоминания о мастер-классах будут отправляться за 24 часа и за 1 час до начала")
+    print("🔄 При запуске бота проверяются и отправляются пропущенные напоминания")
+
+    return application
+
+def main():
+    application = setup_bot()
+    if not application:
+        return
 
     try:
         application.run_polling()
