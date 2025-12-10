@@ -617,6 +617,7 @@ def init_google_sheets():
         if not GOOGLE_CREDENTIALS_JSON:
             logger.warning("❌ Переменная окружения GOOGLE_CREDENTIALS_JSON не установлена")
             logger.warning("📊 Функция интеграции с Google Sheets будет отключена.")
+            logger.warning("ℹ️ Установите GOOGLE_CREDENTIALS_JSON с содержимым credentials.json")
             google_sheets_enabled = False
             google_sheets_initialized = True
             return False
@@ -7422,8 +7423,14 @@ def main():
     if not application:
         return
 
+    # PTB 22.x compatibility - use asyncio.run for proper async handling
+    import asyncio
+
+    async def run_polling():
+        await application.run_polling()
+
     try:
-        application.run_polling()
+        asyncio.run(run_polling())
     finally:
         # Гарантированное завершение работы
         shutdown()
